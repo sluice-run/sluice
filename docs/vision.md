@@ -31,6 +31,44 @@ them from the start: each step has a name, is idempotent, and declares its resul
 
 ## Design notes
 
+### Execution model
+
+Sluice starts as an Effect program that runs inside one CI job. GitLab or GitHub still
+provides the runner, the checkout and the artifacts, and the program replaces the shell
+script and the YAML logic in that job. The platform's job page shows one job instead of
+several, and the trace shows the steps inside it.
+
+A later option is to run steps through Dagger (wrap its TypeScript SDK in
+`Effect.tryPromise`). Dagger gives containers and content-addressed caching, and Effect
+gives composition, typed errors and traces. It is more powerful, but users must learn two
+new tools at once, so it is not the starting point.
+
+[`sketches/first-pipeline.ts`](./sketches/first-pipeline.ts) is a working sketch of the
+first model. It runs `pnpm install` with retries, then `lint`, `typecheck` and `test` in
+parallel, fails with a typed `StepFailed` error, and exports a trace over OTLP. It uses
+only `effect` and `@effect/platform-node` 4.0.4, because Effect 4 ships OTLP export in
+`effect/observability`. On 2026-10-14 it passed `typecheck` and `lint` inside
+`packages/core`, ran against this repository, and its trace showed in Jaeger as `ci` with
+the four steps below it. Two limits: output from parallel steps is interleaved, and steps
+have no platform log sections yet (goal 3).
+
+To run it, copy it into a package that depends on `@effect/platform-node`, start Jaeger
+with `docker run -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one`, and run
+`node <file>.ts`.
+
+### Tracing pipelines that are still YAML
+
+A team can get traces before it moves any pipeline to Sluice. For GitLab, the API gives
+each job's `created_at`, `started_at`, `finished_at` and `queued_duration`. Each job log
+contains `section_start:<timestamp>:<name>` and `section_end` markers for steps such as
+`prepare_executor`, `get_sources`, `restore_cache`, `step_script` and
+`upload_artifacts`. Together they give a full trace of a finished pipeline, with no change
+to the pipeline. GitHub has the same data in its workflow run and job APIs.
+
+This could be a command such as `sluice trace <pipeline-url>`. It shows a team where its
+time goes, which is the best argument for moving to Sluice, and it needs only a read-only
+API token. Span attributes should follow the OpenTelemetry `cicd.*` semantic conventions.
+
 ### `effect/workflow`, not `effect/cluster`
 
 `effect/workflow` gives the right words for CI: an `Activity` is a step with a memoized
@@ -38,10 +76,19 @@ result, a `DurableDeferred` waits for an approval, and a `DurableClock` waits fo
 
 `effect/cluster` is the wrong runtime. `ClusterWorkflowEngine` needs sharding, runners and
 SQL message storage, so it expects long-lived processes. CI runners start, run one job,
-and stop. A SQLite file on a runner is deleted with the runner.
+and stop. `SingleRunner` runs the cluster in one process against SQL, but that does not
+help: a SQLite file on a runner is deleted with the runner, and a hosted database is a
+service every user would have to run.
 
-`WorkflowEngine` is an interface, so an engine can store its state somewhere CI already
-has, such as an S3 or R2 bucket. Known problems to check before building one:
+Effect ships two engines: `WorkflowEngine.layerMemory`, which is not durable, and
+`ClusterWorkflowEngine`. `WorkflowEngine` is an interface, so a third engine can store its
+state somewhere CI already has, such as an S3 or R2 bucket. In `effect` 4.0.4 its
+`Encoded` interface has eleven methods: `register`, `execute`, `poll`, `interrupt`,
+`interruptUnsafe`, `resume`, `awaitComplete`, `activityExecute`, `deferredResult`,
+`deferredDone` and `scheduleClock`.
+[TeXRA issue #12081](https://github.com/LionSR/TeXRA/issues/12081) describes a project
+that builds its own engine for the same reason, against a release candidate that had ten
+of these. Known problems to check before building one:
 
 - Engine methods have `never` in their error channel, so a storage failure can only be a
   defect, not a typed error.
@@ -65,6 +112,11 @@ GitLab child pipeline or a GitHub matrix, and each job runs one slice of the sam
 The jobs then need a shared store to coordinate, and that store is where a durable engine
 earns its place. No existing tool solves this for both GitLab and GitHub.
 
+`effect/workflow` also has `DurableQueue`. A workflow offers a payload to a persisted
+queue and suspends, and a worker runs the handler and resumes the workflow with the
+result. Delivery is at least once, so handlers must be idempotent. A CI job that acts as
+a worker is one possible shape for fan-out.
+
 ## Prior art
 
 - [effect-ci-testbed](https://github.com/ericclemmons/effect-ci-testbed): CI workflows as
@@ -79,6 +131,27 @@ earns its place. No existing tool solves this for both GitLab and GitHub.
   TypeScript, on Deno.
 - [Dagger](https://dagger.io/): pipelines as code with a container engine and caching. A
   possible execution backend, not a competitor to the Effect layer.
+- [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions):
+  `model/cicd` defines the `cicd.*` attributes that CI spans should carry.
+- [otel-cicd-action](https://github.com/dash0hq/otel-cicd-action): turns a finished GitHub
+  Actions run into spans.
+- [gitlabreceiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/gitlabreceiver):
+  an OpenTelemetry Collector receiver that builds traces from GitLab pipeline webhooks. It
+  is not in `repos.config.js`, because the repository is about 900 MB.
+
+## Next steps
+
+1. **Design the core types** in `packages/core`: `Step`, `Pipeline`, the platform adapter
+   service, and what a step's cache key contains. Shape steps so that goals 4 and 5 fit
+   later without a rewrite.
+2. **Build a thin end-to-end slice.** One real pipeline, this repository's own checks,
+   runs locally and on GitLab CI from the same program, with traces. Start from
+   [`sketches/first-pipeline.ts`](./sketches/first-pipeline.ts).
+3. **Publish a placeholder** of `@sluice-run/core` as `0.0.1`, so the `@sluice-run` npm
+   scope holds a real package. Remove `"private": true` from
+   `packages/core/package.json` first. Publish exports that point at built `dist/` files,
+   not at `src/index.ts`.
+4. **Talk to the author of effect-ci-testbed** before Sluice overlaps with it.
 
 ## Open questions
 
