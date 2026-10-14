@@ -5,7 +5,7 @@ Effect-native CI pipelines for GitLab and GitHub.
 You write a pipeline as an [Effect](https://effect.website/) program. The same program
 runs on your laptop, on GitLab CI and on GitHub Actions, and every step exports an
 OpenTelemetry span. See [`docs/vision.md`](./docs/vision.md) for the goals and the design
-notes.
+notes, and [`docs/packages.md`](./docs/packages.md) for the planned packages.
 
 **Status:** early design. Nothing here is usable yet.
 

@@ -5,7 +5,8 @@ local machine. `docs/vision.md` holds the goals, their order, and the design not
 it before you design anything.
 
 The workspace is a pnpm monorepo scaffolded from `project-setup`. Packages live in
-`packages/*`. A new package must be added to the `references` array in `tsconfig.json`.
+`packages/*`. `docs/packages.md` lists the planned packages, the dependency rules between
+them, and how to add one.
 
 ## Effect Source and Docs (`node_modules/`)
 
@@ -17,7 +18,7 @@ Each Effect package also ships agent documentation, and it is the first place to
 - `ai-docs/src/` holds the runnable examples that `AGENTS.md` links to, one file per topic.
 - `src/` is the source itself, for when the question is "what does this actually do".
 
-The packages are not hoisted to the root `node_modules/`. Reach them through a workspace package that depends on them, for example `packages/<pkg>/node_modules/effect/`. They are symlinks into `node_modules/.pnpm/`, and the version in that path tells you which build you are reading.
+The packages are not hoisted to the root `node_modules/`. Reach them through a workspace package that depends on them, for example `packages/core/node_modules/effect/` and `packages/core/node_modules/@effect/vitest/`. They are symlinks into `node_modules/.pnpm/`, and the version in that path tells you which build you are reading.
 
 `export` in the source does not mean public. Check for `/** @internal */`. When `tsc` says a name does not exist on a module that exports it, that is the likely reason. Do not cast or `@ts-ignore`; read the definition and inline it.
 

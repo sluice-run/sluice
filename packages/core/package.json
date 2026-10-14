@@ -1,0 +1,27 @@
+{
+    "name": "@sluice-run/core",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Effect-native CI pipelines: the platform-independent core.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sluice-run/sluice.git",
+        "directory": "packages/core"
+    },
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "vitest run --passWithNoTests"
+    },
+    "devDependencies": {
+        "@effect/vitest": "4.0.4",
+        "effect": "4.0.4",
+        "vitest": "5.0.4"
+    },
+    "peerDependencies": {
+        "effect": "^4.0.4"
+    }
+}

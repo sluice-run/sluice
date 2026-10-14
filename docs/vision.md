@@ -82,7 +82,6 @@ earns its place. No existing tool solves this for both GitLab and GitHub.
 
 ## Open questions
 
-- Package layout: one package, or a core plus one adapter package per platform?
 - The core types: `Step`, `Pipeline`, the platform adapter `Layer`, and what a step's
   cache key contains.
 - Where a run's state lives between jobs: a bucket, the platform's artifact store, or the
