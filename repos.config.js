@@ -39,6 +39,9 @@ export default {
         { name: "otel-semantic-conventions", url: "https://github.com/open-telemetry/semantic-conventions.git" },
         // Turns a finished GitHub Actions run into OpenTelemetry spans.
         { name: "otel-cicd-action", url: "https://github.com/dash0hq/otel-cicd-action.git" },
+        // The GitHub Actions runner. It decides which environment variables each kind of step gets,
+        // for example whether a `run:` step sees the cache and artifact service tokens.
+        { name: "actions-runner", url: "https://github.com/actions/runner.git" },
     ],
 
     // DEPENDENCY source repos: the things this project is built against. Unlike

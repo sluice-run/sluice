@@ -29,6 +29,43 @@ Goals 1 to 3 already improve on YAML. Goals 4 and 5 come later, but steps are sh
 them from the start: each step has a name, is idempotent, and declares its result with a
 `Schema`.
 
+## Two halves, one trace
+
+Sluice does two things:
+
+- **It observes pipelines that are still YAML.** `sluice trace` reads a finished pipeline
+  from the platform API and turns it into a trace. The pipeline does not change. The
+  trace stops at step level, because the API has nothing below it.
+- **It runs pipelines as Effect programs.** This is goals 1 to 5. A job's shell script and
+  YAML logic become a typed program, and the trace goes as deep as the code.
+
+The first half shows a team where its time goes. The second half lets the team fix it.
+They are one product only if they produce the same trace. When a team moves one job to
+Sluice, the next trace must look the same as before, except that the job now has a full
+tree of spans under it. A team can then move a pipeline one job at a time, and each step
+shows in the trace.
+
+The first half stays small. It is the way into Sluice, not a separate product.
+
+### Who each half is for
+
+The first half is for any team on GitLab or GitHub. It needs a read-only token and no
+change to the pipeline.
+
+The second half is for a smaller group: teams that already write Effect, or at least
+TypeScript, and want their CI to be code. They get local runs, typed errors, retries,
+parallelism, native log sections and deep traces through `Effect.withSpan`. Sluice
+accepts this smaller audience. Two ways to make it larger, and the decision on each:
+
+- **Hide Effect behind a plain step API**, with async functions outside and Effect
+  inside. Not now. It works against the premise of the project, and it puts Sluice in
+  direct competition with Dagger's TypeScript SDK and `@async/pipeline`.
+- **Trace inside YAML jobs without Effect.** A small command such as
+  `sluice span -- <command>` runs one command as one span, with the shared job span from
+  [One trace for both halves](#one-trace-for-both-halves) as its parent. A YAML pipeline
+  then gets one level below the API. `otel-cli exec` does the same thing without the
+  shared parent. This belongs to the first half. It is a possible later addition.
+
 ## Design notes
 
 ### Execution model
@@ -56,6 +93,39 @@ To run it, copy it into a package that depends on `@effect/platform-node`, start
 with `docker run -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one`, and run
 `node <file>.ts`.
 
+### Marketplace actions, and Sluice as a JavaScript action
+
+A Sluice job on GitHub still has a YAML wrapper, and marketplace actions still work in
+it:
+
+```yaml
+steps:
+  - uses: actions/checkout@v5
+  - uses: actions/setup-node@v5
+  - uses: actions/cache@v4
+  - uses: sluice-run/run@v1 # the program replaces only this part
+```
+
+Users lose marketplace actions only in the middle of the logic, between steps that the
+program controls. Most of those actions wrap a command-line tool or an API, such as
+`setup-*`, deploys or pull request comments, and the program calls the tool or API
+directly. A pipeline that must run the same way on GitLab and locally (goal 1) cannot
+depend on marketplace actions in its logic anyway.
+
+The cache and artifact actions are different, because they use GitHub's internal
+services. The runner gives the tokens for these services only to actions, not to `run:`
+steps. `NodeScriptActionHandler.cs` and `ContainerActionHandler.cs` in `actions/runner`
+set `ACTIONS_RUNTIME_URL`, `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL` and
+`ACTIONS_RESULTS_URL`. `ScriptHandler.cs`, which runs `run:` steps, sets only
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, and only when the
+job can request an OIDC token. A `run:` step inside a composite action also goes through
+`ScriptHandler`, so a composite action does not help.
+
+So on GitHub, Sluice ships as a JavaScript action, `uses: sluice-run/run@v1`, and not as
+`run: npx sluice`. The program can then use `@actions/cache` and `@actions/artifact`
+from inside, for example to cache one step's output (goal 4) or to upload a report.
+This was checked against the `actions/runner` source on 2026-10-14.
+
 ### Tracing pipelines that are still YAML
 
 A team can get traces before it moves any pipeline to Sluice. For GitLab, the API gives
@@ -68,6 +138,77 @@ to the pipeline. GitHub has the same data in its workflow run and job APIs.
 This could be a command such as `sluice trace <pipeline-url>`. It shows a team where its
 time goes, which is the best argument for moving to Sluice, and it needs only a read-only
 API token. Span attributes should follow the OpenTelemetry `cicd.*` semantic conventions.
+
+The command reads the finished pipeline and builds the spans afterwards, with the
+timestamps from the API. The pipeline does not send anything while it runs. The trace is
+one root span for the pipeline, a `Queued` span, one span for each job, and one span for
+each step or log section in a job. The API stops at step level. Spans inside a step need
+code inside the job, and that is what a Sluice pipeline adds.
+
+**Output.** The default output is OTLP, sent to the endpoint in
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Every trace backend accepts it: Jaeger, Grafana Tempo,
+Honeycomb, Axiom and Dash0. Jaeger is the quickest way to try it, with the same
+`docker run` command as the first-pipeline sketch. A second output writes the spans to a
+JSONL file for the otelscope terminal viewer. Both outputs come from the same spans.
+
+**Where it runs.** The same program runs in three places:
+
+- On a laptop, as `sluice trace <pipeline-url>`. It needs no change to the pipeline, and it
+  can trace old runs.
+- On GitHub, as an action in a workflow that the `workflow_run` event starts when the
+  traced workflow completes. This is how `otel-cicd-action` works.
+- On GitLab, as a CI/CD component that adds a job in the last stage with `when: always`.
+
+A run that is exported every time gives history, so a team can see changes over time. The
+trace backend stores and compares the runs. Sluice only has to send clean spans with
+stable names. A span name that contains an unfilled template, such as
+`Evaluations (${{ matrix.name }})` from a skipped GitHub matrix job, cannot be compared
+across runs.
+
+**GitLab is the gap.** `otel-cicd-action` already does this well for GitHub, so a GitHub
+version of `sluice trace` mostly repeats it. The only GitLab option today is the
+Collector's `gitlabreceiver`, which needs a running Collector and a webhook. One command
+for both platforms is the reason to build this.
+
+Points to check before building it:
+
+- The GitLab job runs inside the pipeline it traces, so the pipeline is not finished yet.
+  The job must leave itself out of the trace and end the root span at the end of the last
+  other job. `otel-cicd-action` has the same problem when it runs inside the traced
+  workflow, which is why its documentation prefers `workflow_run`.
+- Check whether `CI_JOB_TOKEN` can read the other jobs and their logs. If it cannot, the
+  component needs a project access token with `read_api`.
+- Since June 2026, GitHub Actions can run steps in parallel (`parallel`,
+  `background: true` and `wait`). The jobs API then returns steps that overlap in time, so
+  step spans must not assume that steps run one after another.
+- `Effect.withSpan` cannot set a start time, because `SpanOptions` in `effect` 4.0.4 has
+  no `startTime` and the span takes it from the clock. The `Tracer` service can:
+  `Tracer.span` takes a `startTime`, and `Span.end` takes an `endTime`. The replay should
+  build its spans through the `Tracer` service, so that the OTLP exporter sends the
+  timestamps from the API. This has not been tried yet.
+
+### One trace for both halves
+
+The replay and the program inside a job cannot pass a trace context to each other. The
+program runs during the pipeline, and the replay runs after it. Both know the platform's
+IDs, so both can compute the same span IDs from them:
+
+- trace ID = a hash of the pipeline or run ID, cut to 16 bytes
+- job span ID = a hash of the job ID, cut to 8 bytes
+
+The program inside a job uses the job span as its parent, through `Tracer.externalSpan`
+and `Effect.withParentSpan`. The replay creates that job span later, with the same ID. The
+trace backend joins the two into one trace. Neither side has to wait for the other.
+
+Points to check:
+
+- `NativeSpan` creates random IDs. The replay needs its own `Span` implementation, or
+  another way to set `traceId` and `spanId`.
+- If the replay never runs, the program's spans point at a parent that does not exist.
+  Backends still show them, but as a separate tree with a missing parent.
+- The hash must be the same in every Sluice version, or traces from different versions
+  will not join. Include the platform and the project in it, so that IDs from different
+  GitLab instances or repositories cannot collide.
 
 ### `effect/workflow`, not `effect/cluster`
 
@@ -134,7 +275,10 @@ a worker is one possible shape for fan-out.
 - [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions):
   `model/cicd` defines the `cicd.*` attributes that CI spans should carry.
 - [otel-cicd-action](https://github.com/dash0hq/otel-cicd-action): turns a finished GitHub
-  Actions run into spans.
+  Actions run into spans and sends them over OTLP. On 2026-10-14 Christopher Ehrlich
+  [posted a trace](https://x.com/ccccjjjjeeee/status/2110391954949488811) of his
+  workflow in Axiom that it most likely produced: the span names and its `Queued` span
+  match the action's source.
 - [gitlabreceiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/gitlabreceiver):
   an OpenTelemetry Collector receiver that builds traces from GitLab pipeline webhooks. It
   is not in `repos.config.js`, because the repository is about 900 MB.
@@ -142,8 +286,9 @@ a worker is one possible shape for fan-out.
 ## Next steps
 
 1. **Design the core types** in `packages/core`: `Step`, `Pipeline`, the platform adapter
-   service, and what a step's cache key contains. Shape steps so that goals 4 and 5 fit
-   later without a rewrite.
+   service, what a step's cache key contains, and how a run gets its trace ID and parent
+   span from the platform's IDs. Shape steps so that goals 4 and 5 fit later without a
+   rewrite.
 2. **Build a thin end-to-end slice.** One real pipeline, this repository's own checks,
    runs locally and on GitLab CI from the same program, with traces. Start from
    [`sketches/first-pipeline.ts`](./sketches/first-pipeline.ts).
@@ -152,10 +297,14 @@ a worker is one possible shape for fan-out.
    `packages/core/package.json` first. Publish exports that point at built `dist/` files,
    not at `src/index.ts`.
 4. **Talk to the author of effect-ci-testbed** before Sluice overlaps with it.
+5. **Try a `sluice trace` replay against Jaeger.** Read one finished GitLab pipeline,
+   build its spans through the `Tracer` service with the API timestamps, and check that
+   Jaeger shows them at the right times. Then run a Sluice program in one job of that pipeline, and check
+   that its spans join the replayed trace under the job span.
 
 ## Open questions
 
-- The core types: `Step`, `Pipeline`, the platform adapter `Layer`, and what a step's
-  cache key contains.
+- The core types: `Step`, `Pipeline`, the platform adapter `Layer`, what a step's cache
+  key contains, and how trace and span IDs are computed from the platform's IDs.
 - Where a run's state lives between jobs: a bucket, the platform's artifact store, or the
   platform's package registry.

@@ -8,12 +8,12 @@ Every package lives in `packages/` and is published under the `@sluice-run` npm 
 The workspace has no `apps/` directory, because nothing here is deployed. Add one when
 something deployable exists, such as a docs site.
 
-| Directory         | Package              | Status  | Holds                                                                                |
-| ----------------- | -------------------- | ------- | ------------------------------------------------------------------------------------ |
-| `packages/core`   | `@sluice-run/core`   | started | `Step`, `Pipeline`, the workflow and cache model, and the platform adapter interface |
-| `packages/gitlab` | `@sluice-run/gitlab` | planned | The GitLab adapter: `section_start` log markers, child pipelines, the CI environment |
-| `packages/github` | `@sluice-run/github` | planned | The GitHub adapter: `::group::` log markers, matrix generation, the CI environment   |
-| `packages/cli`    | `@sluice-run/cli`    | planned | The `sluice` command that runs a pipeline locally or in CI                           |
+| Directory         | Package              | Status  | Holds                                                                                                                 |
+| ----------------- | -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
+| `packages/core`   | `@sluice-run/core`   | started | `Step`, `Pipeline`, the workflow and cache model, and the platform adapter interface                                  |
+| `packages/gitlab` | `@sluice-run/gitlab` | planned | The GitLab adapter: `section_start` log markers, child pipelines, the CI environment, finished pipelines from the API |
+| `packages/github` | `@sluice-run/github` | planned | The GitHub adapter: `::group::` log markers, matrix generation, the CI environment, finished runs from the API        |
+| `packages/cli`    | `@sluice-run/cli`    | planned | The `sluice` command that runs a pipeline locally or in CI, and `sluice trace`                                        |
 
 ## Rules
 
