@@ -24,7 +24,22 @@ export default {
     //   { name: "some-lib", url: "https://github.com/acme/some-lib.git", ref: "next" } // branch
     //   { name: "some-lib", url: "https://github.com/acme/some-lib.git", ref: "v1.2.3" } // tag
     //   { name: "some-lib", url: "https://github.com/acme/some-lib.git", ref: "abc1234" } // commit SHA
-    refs: [],
+    refs: [
+        // CI workflows as Effect programs that run locally, on GitHub, and on Cloudflare Workflows.
+        { name: "effect-ci-testbed", url: "https://github.com/ericclemmons/effect-ci-testbed.git" },
+        // Infrastructure as code on Effect, with OpenTelemetry provided as a Layer.
+        { name: "alchemy", url: "https://github.com/alchemy-run/alchemy.git" },
+        // A local-first TypeScript task graph that generates a thin GitHub Actions workflow.
+        { name: "async-pipeline", url: "https://github.com/async/pipeline.git" },
+        // Dockerfiles and CI pipelines in TypeScript, on Deno.
+        { name: "trellis", url: "https://github.com/charliermarsh/trellis.git" },
+        // Pipelines as code with a container engine, caching and OpenTelemetry traces.
+        { name: "dagger", url: "https://github.com/dagger/dagger.git" },
+        // The `cicd.*` attributes that CI spans should carry.
+        { name: "otel-semantic-conventions", url: "https://github.com/open-telemetry/semantic-conventions.git" },
+        // Turns a finished GitHub Actions run into OpenTelemetry spans.
+        { name: "otel-cicd-action", url: "https://github.com/dash0hq/otel-cicd-action.git" },
+    ],
 
     // DEPENDENCY source repos: the things this project is built against. Unlike
     // the branch-tip references above, each one is pinned to the exact VERSION
